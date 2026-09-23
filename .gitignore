@@ -1,0 +1,33 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+data/uploads/
+data/cache/
+data/results/
+models/*.bin
+models/*.safetensors
+models/*.pt
+models/*.pth
+.DS_Store
+Thumbs.db
+.cache/
+.tmp/
+.python-packages/
+models/huggingface/
+data/runs/
+# Local development and non-distributable material
+tests/
+test programs/
+tasks/
+data/
+models/
+pyproject.toml
