@@ -47,6 +47,13 @@ class XGBoostReviewModel:
         matrix = np.asarray(xgb_matrix_rows(rows), dtype=np.float32)
         return self._model.predict_proba(matrix)[:, 1]
 
+    def feature_importances(self) -> list[tuple[str, float]]:
+        if not self.available:
+            return []
+        values = np.asarray(self._model.feature_importances_, dtype=float)
+        ranked = sorted(zip(self.feature_columns, values), key=lambda item: item[1], reverse=True)
+        return [(name, float(value)) for name, value in ranked if value > 0.0]
+
     def score_results(self, results: list[PairResult]) -> None:
         if not results:
             return

@@ -220,6 +220,11 @@ def render_pair_investigation(result: PairResult) -> None:
         st.markdown("### Detector notes")
         for item in result.evidence["explanation"]:
             st.markdown(f"- {item}")
+        ml_model = st.session_state.get("xgb_model")
+        if ml_model is not None and getattr(ml_model, "available", False):
+            st.markdown("### XGBoost feature importance")
+            for name, importance in ml_model.feature_importances()[:8]:
+                st.markdown(f"- `{name}`: {importance:.4f}")
 
 
 def render_results() -> None:
