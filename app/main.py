@@ -13,7 +13,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from similarity_investigator.feature_dataset import save_pair_features
+from similarity_investigator.feature_dataset import pair_feature_rows, save_pair_features
 from similarity_investigator.graphs import ast_to_dot, cfg_to_dot
 from similarity_investigator.ingestion import IngestionError, ingest
 from similarity_investigator.models import InputFile, PairResult, Submission
@@ -172,7 +172,7 @@ def render_pair_investigation(result: PairResult) -> None:
         feature_row("CFG similarity", result.features["cfg_similarity"])
         feature_row("Semantic similarity", result.features["semantic_similarity"])
     with right:
-        st.markdown(f'<div class="stat"><div class="stat-label">Available evidence score</div><div class="stat-value">{float(result.model["score"]):.3f}</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="stat"><div class="stat-label">XGBoost review-priority score</div><div class="stat-value">{float(result.model["score"]):.3f}</div></div>', unsafe_allow_html=True)
         st.markdown(f'<div class="note">matched tokens: {int(result.features["matched_token_count"])}<br>matched regions: {int(result.features["matched_region_count"])}<br>shared AST blocks: {int(result.features["shared_subtree_count"])}<br>file size ratio: {float(result.features["file_size_ratio"]):.3f}<br>function count difference: {int(result.features["function_count_difference"])}<br>class count difference: {int(result.features["class_count_difference"])}</div>', unsafe_allow_html=True)
 
     tabs = st.tabs(["SOURCE", "AST", "CFG", "EVIDENCE"])
@@ -222,9 +222,67 @@ def render_pair_investigation(result: PairResult) -> None:
             st.markdown(f"- {item}")
         ml_model = st.session_state.get("xgb_model")
         if ml_model is not None and getattr(ml_model, "available", False):
-            st.markdown("### XGBoost feature importance")
-            for name, importance in ml_model.feature_importances()[:8]:
-                st.markdown(f"- `{name}`: {importance:.4f}")
+            st.markdown("### Why did the XGBoost model produce this score?")
+            st.markdown(
+                '<div class="note">The score is a model output, not an accuracy percentage or a plagiarism probability. XGBoost is nonlinear, so feature importance alone cannot explain one pair. The table below uses XGBoost native tree contributions, which are additive in model log-odds.</div>',
+                unsafe_allow_html=True,
+            )
+            try:
+                explanation = ml_model.explain_rows(pair_feature_rows([result]))[0]
+                base_log_odds = float(explanation["base_log_odds"])
+                contributions = explanation["contributions"]
+                st.markdown(
+                    f'<div class="note">Base model log-odds: {base_log_odds:.4f}. Signed contributions sum with the base value to the model log-odds. Absolute share shows how much of the pair-specific model evidence came from each feature.</div>',
+                    unsafe_allow_html=True,
+                )
+                top = contributions[:12]
+                explain_rows = []
+                for item in top:
+                    value = float(item["contribution"])
+                    explain_rows.append({
+                        "Feature": item["feature"],
+                        "Contribution (log-odds)": value,
+                        "Direction": "Positive" if value > 0 else "Negative" if value < 0 else "Neutral",
+                        "Absolute share": float(item["absolute_share"]),
+                    })
+                st.dataframe(
+                    pd.DataFrame(explain_rows),
+                    hide_index=True,
+                    use_container_width=True,
+                    column_config={
+                        "Contribution (log-odds)": st.column_config.NumberColumn(format="%+.4f"),
+                        "Absolute share": st.column_config.NumberColumn(format="%.1f%%"),
+                    },
+                )
+                try:
+                    import plotly.express as px
+                    chart = pd.DataFrame(explain_rows).sort_values("Contribution (log-odds)")
+                    fig = px.bar(
+                        chart,
+                        x="Contribution (log-odds)",
+                        y="Feature",
+                        orientation="h",
+                        title="Pair-specific XGBoost contributions",
+                    )
+                    fig.update_layout(height=430, margin=dict(l=10, r=10, t=50, b=10))
+                    st.plotly_chart(fig, use_container_width=True)
+                except Exception:
+                    pass
+            except Exception as exc:
+                st.warning(f"Pair-specific XGBoost explanation unavailable: {exc}")
+
+            st.markdown("### Global XGBoost feature importance")
+            st.markdown('<div class="note">Relative model importance across the trained tree ensemble. This is global model behavior, not the contribution for this specific pair.</div>', unsafe_allow_html=True)
+            global_rows = []
+            for name, importance in ml_model.feature_importances()[:12]:
+                global_rows.append({"Feature": name, "Global gain importance": float(importance)})
+            if global_rows:
+                st.dataframe(
+                    pd.DataFrame(global_rows),
+                    hide_index=True,
+                    use_container_width=True,
+                    column_config={"Global gain importance": st.column_config.NumberColumn(format="%.1f%%")},
+                )
 
 
 def render_results() -> None:

@@ -27,7 +27,7 @@ Submissions are compared only with other submissions in the same language becaus
 - **PyTorch + Hugging Face Transformers** for the optional local CodeBERT detector
 - **CSV** for the exported pairwise feature dataset
 
-XGBoost is **not** part of the current decision pipeline. The application currently produces an XGBoost-ready feature schema so that model validation can be performed later with human-labeled data.
+XGBoost is part of the local review-priority pipeline. The current bundled artifact is a synthetic demonstration model. It is explicitly not a plagiarism classifier and must be replaced or revalidated with professor-reviewed relationship labels before production use.
 
 ## How it works
 
@@ -47,6 +47,9 @@ Student source files / ZIP
           |
           +--> common-across-corpus adjustment
           +--> corpus-relative calibration
+          |
+          v
+   XGBoost review-priority model
           |
           v
    Similarity relationships / groups
@@ -79,15 +82,17 @@ The application is configured for `local_files_only=True` during investigations.
 
 ### 6. Evidence fusion and calibration
 
-The current review score is a deterministic, versioned baseline built from the available static evidence. Results are also calibrated within each language using corpus percentile and a robust MAD-based deviation measure. The system exposes the underlying detector values rather than turning them into a claim of misconduct.
+The deterministic, versioned baseline is built from the available static evidence. Results are also calibrated within each language using corpus percentile and a robust MAD-based deviation measure. When the local XGBoost artifact is present, its probability becomes the review-priority score while the deterministic score remains available as `deterministic_score`. The system exposes the underlying detector values rather than turning them into a claim of misconduct.
 
 ### 7. Relationship groups
 
 Strong pairwise relationships can be represented as a NetworkX graph. Connected groups help the reviewer inspect clusters of related submissions.
 
-### 8. XGBoost-ready dataset
+### 8. XGBoost feature dataset and explainability
 
-Every analysis run writes a pairwise CSV containing a fixed numeric feature schema (`xgb-ready-v2`). Missing detector values are represented as missing data at the model boundary. No XGBoost model is trained or used yet. A future model must be validated against human-labeled review data and compared with the deterministic baseline before it is introduced.
+Every analysis run writes a pairwise CSV containing a fixed numeric feature schema (`xgb-ready-v2`). Missing detector values are represented as missing data at the model boundary. The XGBoost model uses all 44 numeric features in the fixed schema. The dashboard shows global tree gain importance and pair-specific native XGBoost contributions. Pair-specific contributions are additive in model log-odds, so they explain why individual features moved the model output up or down for that pair.
+
+The displayed XGBoost review-priority score is a model output, not an accuracy percentage and not a plagiarism probability.
 
 ## Project layout
 
@@ -260,7 +265,7 @@ The final interpretation belongs to the professor or other authorized reviewer.
 
 ## Development notes
 
-The current repository intentionally stops before the XGBoost stage. The next model-stage work should use a labeled validation corpus and compare the trained model against the deterministic baseline. If the model does not improve review prioritization in validation, the deterministic baseline should remain the production path.
+The bundled XGBoost artifact is a synthetic demonstration model. The next model-stage work should use professor-reviewed relationship outcomes and compare the trained model against the deterministic baseline on a held-out student-aware validation set. Synthetic metrics are not evidence of real-world detector accuracy.
 
 ## ML stage: local CodeBERT and XGBoost
 
@@ -290,4 +295,4 @@ models/xgboost/review_priority.json
 
 The demonstration training labels are synthetic by construction. They prove the end-to-end ML path and are not a substitute for professor-reviewed validation labels. For a defensible final model, replace the demo labels with reviewed relationship outcomes and evaluate the XGBoost model against the deterministic baseline before relying on its review ordering.
 
-When the model artifact exists, the application applies its probability as the review-priority score while preserving the deterministic score in the pair result as `deterministic_score`. The UI continues to expose the underlying detector measurements.
+When the model artifact exists, the application applies its probability as the review-priority score while preserving the deterministic score in the pair result as `deterministic_score`. The UI also exposes global feature importance and pair-specific native XGBoost contributions. The contribution view is exact for the loaded tree ensemble in log-odds space and is not computed as feature value multiplied by feature importance.

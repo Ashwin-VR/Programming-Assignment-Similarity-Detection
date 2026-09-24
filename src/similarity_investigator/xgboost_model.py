@@ -13,7 +13,7 @@ XGBOOST_SCHEMA_VERSION = "xgboost-review-priority-v1"
 
 
 class XGBoostReviewModel:
-    """Local XGBoost classifier for human-labeled review-priority relationships."""
+    """Local XGBoost classifier for review-priority relationships."""
 
     def __init__(self, model=None, model_path: str | Path | None = None) -> None:
         self._model = model
@@ -47,6 +47,44 @@ class XGBoostReviewModel:
         matrix = np.asarray(xgb_matrix_rows(rows), dtype=np.float32)
         return self._model.predict_proba(matrix)[:, 1]
 
+    def explain_rows(self, rows: list[dict[str, object]]) -> list[dict[str, object]]:
+        """Return exact native XGBoost tree contributions for each row.
+
+        Contributions are additive in model log-odds. The final probability is
+        sigmoid(base_value + sum(feature_contributions)). This uses XGBoost's
+        native pred_contribs output and does not require an external service.
+        """
+        if not self.available:
+            raise RuntimeError("XGBoost model is not loaded")
+        from xgboost import DMatrix
+
+        matrix = np.asarray(xgb_matrix_rows(rows), dtype=np.float32)
+        contributions = self._model.get_booster().predict(
+            DMatrix(matrix), pred_contribs=True
+        )
+        explanations: list[dict[str, object]] = []
+        for row_values in contributions:
+            feature_values = row_values[:-1]
+            base_value = float(row_values[-1])
+            ranked = sorted(
+                zip(self.feature_columns, feature_values),
+                key=lambda item: abs(float(item[1])),
+                reverse=True,
+            )
+            total_abs = float(sum(abs(float(value)) for _, value in ranked))
+            explanations.append({
+                "base_log_odds": base_value,
+                "contributions": [
+                    {
+                        "feature": name,
+                        "contribution": float(value),
+                        "absolute_share": (abs(float(value)) / total_abs if total_abs else 0.0),
+                    }
+                    for name, value in ranked
+                ],
+            })
+        return explanations
+
     def feature_importances(self) -> list[tuple[str, float]]:
         if not self.available:
             return []
@@ -64,7 +102,7 @@ class XGBoostReviewModel:
             result.model["deterministic_score"] = deterministic
             result.model["score"] = float(np.clip(probability, 0.0, 1.0))
             result.model["model_version"] = XGBOOST_SCHEMA_VERSION
-            result.evidence["score_basis"] = "XGBoost review-priority model trained on human-labeled relationship examples"
+            result.evidence["score_basis"] = "XGBoost review-priority model trained on synthetic labeled relationship examples for pipeline demonstration"
             result.evidence["ml_probability"] = float(result.model["score"])
 
     def save(self, path: str | Path) -> Path:
@@ -80,7 +118,7 @@ class XGBoostReviewModel:
                     "schema_version": XGBOOST_SCHEMA_VERSION,
                     "feature_columns": list(self.feature_columns),
                     "target": "review_priority_label",
-                    "target_semantics": "Human-labeled relationship/review outcome. Not a plagiarism verdict.",
+                    "target_semantics": "Synthetic labeled relationship/review outcome used for pipeline demonstration. Not a plagiarism verdict.",
                 },
                 indent=2,
             ),
