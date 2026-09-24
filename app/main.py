@@ -21,6 +21,7 @@ from similarity_investigator.pairwise import compare_all
 from similarity_investigator.relationships import relationship_groups
 from similarity_investigator.languages import language_key
 from similarity_investigator.semantic import CodeBERTEncoder
+from similarity_investigator.xgboost_model import XGBoostReviewModel
 
 
 LANGUAGE_CODE = {"Python": "python", "C++": "cpp", "Java": "java"}
@@ -227,7 +228,7 @@ def render_results() -> None:
     frame = pair_dataframe(results)
     st.markdown('<div class="eyebrow">ANALYSIS COMPLETE</div>', unsafe_allow_html=True)
     st.markdown("# FIND THE RELATIONSHIPS", unsafe_allow_html=True)
-    st.markdown('<div class="lede">Start with the relationships, then inspect the evidence. The current pipeline keeps raw detector outputs visible and saves the pair feature dataset for later model validation.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="lede">Start with the relationships, then inspect the evidence. Static detectors, local CodeBERT semantic similarity, and the local XGBoost review-priority model remain visible as measured evidence.</div>', unsafe_allow_html=True)
     same_language_pairs = len(results)
     columns = st.columns(4)
     for col, label, value in zip(columns, ["Submissions", "Same-language pairs", "Languages", "Mean evidence score"], [str(len(submissions)), f"{same_language_pairs:,}", str(len({item.language for item in submissions})), f"{float(frame['Evidence score'].mean()):.3f}" if not frame.empty else "--"]):
@@ -245,12 +246,25 @@ def render_results() -> None:
 
     with st.container(border=True):
         st.markdown('<div class="eyebrow">05 / FEATURE DATASET</div>', unsafe_allow_html=True)
-        st.markdown("## XGBoost input, later", unsafe_allow_html=True)
-        st.markdown('<div class="note">The CSV contains detector outputs and pair metadata. No XGBoost decision is produced yet. This file is the training and validation substrate for the final model stage.</div>', unsafe_allow_html=True)
+        st.markdown("## ML FEATURE DATASET", unsafe_allow_html=True)
+        st.markdown('<div class="note">The CSV contains the exact numeric feature contract used by the local XGBoost review-priority model. The model consumes measured detector outputs and never generates a plagiarism verdict.</div>', unsafe_allow_html=True)
         feature_path = st.session_state.get("feature_path")
         if feature_path:
             st.code(feature_path, language="text")
             st.download_button("DOWNLOAD PAIR FEATURE CSV", data=Path(feature_path).read_bytes(), file_name=Path(feature_path).name, mime="text/csv")
+
+
+def get_ml_model() -> XGBoostReviewModel | None:
+    if "xgb_model" in st.session_state:
+        return st.session_state["xgb_model"]
+    model = XGBoostReviewModel(model_path=ROOT / "models" / "xgboost" / "review_priority.json")
+    try:
+        model.load()
+    except Exception:
+        st.session_state["xgb_model"] = None
+        return None
+    st.session_state["xgb_model"] = model
+    return model
 
 
 def get_semantic_encoder() -> CodeBERTEncoder | None:
@@ -289,7 +303,7 @@ with upload_left:
     st.markdown('<div class="note">Accepted: .py .cpp .cc .cxx .hpp .java .zip / maximum individual upload: 100 MB / source remains local</div>', unsafe_allow_html=True)
 with action_right:
     st.markdown('<div class="eyebrow">OPTIONS</div>', unsafe_allow_html=True)
-    use_semantic = st.checkbox("ENABLE LOCAL CODEBERT", value=False, help="Only works when microsoft/codebert-base is already available in the local model cache. Loading can take time the first time.")
+    use_semantic = st.checkbox("ENABLE LOCAL CODEBERT", value=True, help="Only works when microsoft/codebert-base is already available in the local model cache. Loading can take time the first time.")
     st.markdown('<div class="eyebrow">ACTION</div>', unsafe_allow_html=True)
     process = st.button("PROCESS SUBMISSIONS", type="primary", use_container_width=True, disabled=not uploaded)
 
@@ -334,6 +348,12 @@ if process and uploaded:
 
         status.write("Computing normalized tokens and structural features...")
         results = compare_all(submissions, semantic_encoder=encoder, progress_callback=on_progress)
+        ml_model = get_ml_model()
+        if ml_model is not None:
+            status.write("Applying local XGBoost review-priority model...")
+            ml_model.score_results(results)
+        else:
+            status.write("XGBoost model artifact not found. Keeping deterministic evidence score.")
         progress.progress(96, text="Saving feature dataset")
         run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         feature_path = ROOT / "data" / "runs" / run_id / "pair_features.csv"
@@ -361,4 +381,4 @@ else:
     with st.container(border=True):
         st.markdown('<div class="eyebrow">WAITING FOR A CLASS</div>', unsafe_allow_html=True)
         st.markdown("## Upload. Process. Investigate.", unsafe_allow_html=True)
-        st.markdown('<div class="note">Python, C++, and Java use token, AST, and lightweight CFG detectors. CodeBERT remains optional and local.</div>', unsafe_allow_html=True)
+        st.markdown('<div class="note">Python, C++, and Java use token, AST, lightweight CFG, local CodeBERT, and an optional local XGBoost review-priority model. Student code is never executed.</div>', unsafe_allow_html=True)
