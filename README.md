@@ -268,7 +268,7 @@ The application now includes both required ML components.
 
 ### Local CodeBERT
 
-CodeBERT is loaded from the local Hugging Face cache only. The application does not call an external inference API. Place `microsoft/codebert-base` in `models/huggingface` or populate that cache from a machine with network access before running the semantic detector. Embeddings are mean-pooled, normalized, and cached under `data/cache/embeddings` using the source hash, model name, and semantic schema version.
+CodeBERT is loaded from the local Hugging Face cache only. The application does not call an external inference API. Run `python scripts/prepare_codebert.py` once on a machine with network access to populate `models/huggingface`, then the application uses `local_files_only=True` for inference. Embeddings are mean-pooled, normalized, and cached under `data/cache/embeddings` using the source hash, model name, and semantic schema version.
 
 The Streamlit option is enabled by default. If the local model is unavailable, the static deterministic evidence pipeline remains available, but a run without CodeBERT does not contain semantic evidence.
 
