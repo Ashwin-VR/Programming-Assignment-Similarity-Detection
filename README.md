@@ -261,3 +261,33 @@ The final interpretation belongs to the professor or other authorized reviewer.
 ## Development notes
 
 The current repository intentionally stops before the XGBoost stage. The next model-stage work should use a labeled validation corpus and compare the trained model against the deterministic baseline. If the model does not improve review prioritization in validation, the deterministic baseline should remain the production path.
+
+## ML stage: local CodeBERT and XGBoost
+
+The application now includes both required ML components.
+
+### Local CodeBERT
+
+CodeBERT is loaded from the local Hugging Face cache only. The application does not call an external inference API. Place `microsoft/codebert-base` in `models/huggingface` or populate that cache from a machine with network access before running the semantic detector. Embeddings are mean-pooled, normalized, and cached under `data/cache/embeddings` using the source hash, model name, and semantic schema version.
+
+The Streamlit option is enabled by default. If the local model is unavailable, the static deterministic evidence pipeline remains available, but a run without CodeBERT does not contain semantic evidence.
+
+### XGBoost review-priority model
+
+The project now has a local XGBoost classifier interface in `src/similarity_investigator/xgboost_model.py`. It consumes the exact numeric feature contract from `feature_dataset.py`, including token, AST, CFG, semantic, size, parse, and corpus-relative features. Missing semantic values are passed as `NaN`, which XGBoost can handle.
+
+A local demonstration model can be trained with:
+
+```text
+python scripts/train_demo_xgboost.py
+```
+
+This writes:
+
+```text
+models/xgboost/review_priority.json
+```
+
+The demonstration training labels are synthetic by construction. They prove the end-to-end ML path and are not a substitute for professor-reviewed validation labels. For a defensible final model, replace the demo labels with reviewed relationship outcomes and evaluate the XGBoost model against the deterministic baseline before relying on its review ordering.
+
+When the model artifact exists, the application applies its probability as the review-priority score while preserving the deterministic score in the pair result as `deterministic_score`. The UI continues to expose the underlying detector measurements.
