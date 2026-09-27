@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Iterable
 
 import numpy as np
+import pandas as pd
 
 from .feature_dataset import NUMERIC_FEATURE_COLUMNS, xgb_matrix_rows, pair_feature_rows
 from .models import PairResult
@@ -44,7 +45,7 @@ class XGBoostReviewModel:
     def predict_probability(self, rows: list[dict[str, object]]) -> np.ndarray:
         if not self.available:
             raise RuntimeError("XGBoost model is not loaded")
-        matrix = np.asarray(xgb_matrix_rows(rows), dtype=np.float32)
+        matrix = pd.DataFrame(xgb_matrix_rows(rows), columns=list(self.feature_columns), dtype=np.float32)
         return self._model.predict_proba(matrix)[:, 1]
 
     def explain_rows(self, rows: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -60,7 +61,7 @@ class XGBoostReviewModel:
 
         matrix = np.asarray(xgb_matrix_rows(rows), dtype=np.float32)
         contributions = self._model.get_booster().predict(
-            DMatrix(matrix), pred_contribs=True
+            DMatrix(matrix, feature_names=list(self.feature_columns)), pred_contribs=True
         )
         explanations: list[dict[str, object]] = []
         for row_values in contributions:
@@ -147,7 +148,7 @@ def train_xgboost(
         raise ValueError("training labels must contain both 0 and 1")
 
     XGBClassifier = XGBoostReviewModel()._ensure_xgboost()
-    matrix = np.asarray(xgb_matrix_rows(rows), dtype=np.float32)
+    matrix = pd.DataFrame(xgb_matrix_rows(rows), columns=list(NUMERIC_FEATURE_COLUMNS), dtype=np.float32)
     model = XGBClassifier(
         objective="binary:logistic",
         eval_metric="logloss",

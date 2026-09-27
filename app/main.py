@@ -291,6 +291,8 @@ def render_results() -> None:
     frame = pair_dataframe(results)
     st.markdown('<div class="eyebrow">ANALYSIS COMPLETE</div>', unsafe_allow_html=True)
     st.markdown("# FIND THE RELATIONSHIPS", unsafe_allow_html=True)
+    if st.session_state.get("xgb_error"):
+        st.warning(f"XGBoost diagnostic: {st.session_state["xgb_error"]}")
     st.markdown('<div class="lede">Start with the relationships, then inspect the evidence. Static detectors, local CodeBERT semantic similarity, and the local XGBoost review-priority model remain visible as measured evidence.</div>', unsafe_allow_html=True)
     same_language_pairs = len(results)
     columns = st.columns(4)
@@ -323,8 +325,9 @@ def get_ml_model() -> XGBoostReviewModel | None:
     model = XGBoostReviewModel(model_path=ROOT / "models" / "xgboost" / "review_priority.json")
     try:
         model.load()
-    except Exception:
+    except Exception as exc:
         st.session_state["xgb_model"] = None
+        st.session_state["xgb_error"] = str(exc)
         return None
     st.session_state["xgb_model"] = model
     return model
@@ -414,9 +417,13 @@ if process and uploaded:
         ml_model = get_ml_model()
         if ml_model is not None:
             status.write("Applying local XGBoost review-priority model...")
-            ml_model.score_results(results)
+            try:
+                ml_model.score_results(results)
+            except Exception as exc:
+                st.session_state["xgb_error"] = str(exc)
+                status.write("XGBoost could not score this run. Keeping deterministic evidence score.")
         else:
-            status.write("XGBoost model artifact not found. Keeping deterministic evidence score.")
+            status.write("XGBoost model unavailable. Keeping deterministic evidence score.")
         progress.progress(96, text="Saving feature dataset")
         run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         feature_path = ROOT / "data" / "runs" / run_id / "pair_features.csv"
