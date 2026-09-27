@@ -92,24 +92,27 @@ Strong pairwise relationships can be represented as a NetworkX graph. Connected 
 
 Every analysis run writes a pairwise CSV containing a fixed numeric feature schema (`xgb-ready-v2`). Missing detector values are represented as missing data at the model boundary. The XGBoost model uses all 44 numeric features in the fixed schema. The dashboard shows global tree gain importance and pair-specific native XGBoost contributions. Pair-specific contributions are additive in model log-odds, so they explain why individual features moved the model output up or down for that pair.
 
-The displayed XGBoost review-priority score is a model output, not an accuracy percentage and not a plagiarism probability.
+The displayed XGBoost review-priority score is a model output, not an accuracy percentage and not a plagiarism probability. The dashboard also retains the deterministic evidence score and shows global feature importance plus pair-specific native XGBoost contributions so that the reviewer can inspect which measured features moved a model output up or down.
 
 ## Project layout
 
-Only the runtime files required to set up and run the application are part of the distributable repository:
+The repository contains the application, analysis modules, setup scripts, and technical documentation needed to reproduce the local website. Generated caches, uploaded data, local model weights, tests, temporary files, and sample student submissions are intentionally kept out of Git.
 
 ```text
-Code-Similarity-Investigator/
+Programming-Assignment-Similarity-Detection/
 ├── .gitignore
 ├── .streamlit/
 │   └── config.toml
 ├── README.md
 ├── requirements.txt
+├── SALVO_Recruitment_Task_Documentation_Team-We Love Salvo.pdf
 ├── app/
 │   └── main.py
+├── scripts/
+│   ├── prepare_codebert.py
+│   └── train_demo_xgboost.py
 └── src/
     └── similarity_investigator/
-        ├── __init__.py
         ├── ast_analysis.py
         ├── calibration.py
         ├── cfg_analysis.py
@@ -124,12 +127,13 @@ Code-Similarity-Investigator/
         ├── relationships.py
         ├── semantic.py
         ├── static_analysis.py
-        └── tokens.py
+        ├── tokens.py
+        └── xgboost_model.py
 ```
 
-Generated caches, uploaded data, local model weights, tests, temporary files, and sample student submissions are intentionally not part of the repository.
+## Complete setup on Windows
 
-## Setup on Windows
+This section describes the full setup required by a new user. The application is designed to run locally. No external LLM, plagiarism API, or cloud inference service is required.
 
 ### Prerequisites
 
@@ -189,7 +193,35 @@ python -m compileall app src
 
 A successful command completes without compilation errors.
 
-### Step 6: Start the application
+### Step 6: Prepare the local XGBoost review-priority model
+
+XGBoost is part of the application pipeline. The repository does not store generated model artifacts, so a fresh checkout should create the local demonstration model once:
+
+```powershell
+python scripts/train_demo_xgboost.py
+```
+
+This creates:
+
+```text
+models/xgboost/review_priority.json
+```
+
+The demonstration model is trained from synthetic relationship labels. It is included to make the complete ML path runnable, but its output must not be treated as a real-world plagiarism probability or validation result. A production deployment should replace it with a model trained from professor-reviewed relationship outcomes and student-aware validation data.
+
+### Step 7: Optional local CodeBERT setup
+
+CodeBERT adds semantic similarity evidence. It is optional because the token, AST, CFG, common-code, calibration, relationship, and XGBoost pipeline can run without semantic embeddings. To enable it, download the local `microsoft/codebert-base` model once:
+
+```powershell
+python scripts/prepare_codebert.py
+```
+
+The script stores the model under `models/huggingface`. During an investigation, the application loads CodeBERT with `local_files_only=True`. Student source is not sent to Hugging Face during inference.
+
+If CodeBERT is not prepared, leave **ENABLE LOCAL CODEBERT** unchecked.
+
+### Step 8: Start the application
 
 ```powershell
 python -m streamlit run app/main.py
@@ -197,7 +229,7 @@ python -m streamlit run app/main.py
 
 Streamlit will print the local URL in the terminal. Open that URL in a browser.
 
-### Step 7: Run an investigation
+### Step 9: Run an investigation
 
 1. Upload individual `.py`, `.cpp`, `.cc`, `.cxx`, `.hpp`, or `.java` files, or upload one ZIP archive.
 2. The ZIP can contain a class submission set. Unsafe archive entries are rejected before analysis.
@@ -205,20 +237,6 @@ Streamlit will print the local URL in the terminal. Open that URL in a browser.
 4. If CodeBERT is already installed in the local model cache, enable **ENABLE LOCAL CODEBERT**.
 5. Click **PROCESS SUBMISSIONS**.
 6. Inspect the pairwise relationships, detector measurements, source comparison, AST, CFG, matched token regions, relationship groups, and exported feature CSV.
-
-## Optional: enable local CodeBERT
-
-CodeBERT is optional. The application expects the `microsoft/codebert-base` tokenizer and model to be available in the local Hugging Face cache under the project's `models/huggingface` directory.
-
-The repository does **not** include model weights because they are large generated artifacts. Download the model once on a machine with network access, using the same `cache_dir` shown below, then keep the resulting model files local:
-
-```powershell
-python -c "from transformers import AutoTokenizer, AutoModel; p='models/huggingface'; AutoTokenizer.from_pretrained('microsoft/codebert-base', cache_dir=p, local_files_only=False); AutoModel.from_pretrained('microsoft/codebert-base', cache_dir=p, local_files_only=False)"
-```
-
-After the weights are present, the investigation itself uses local-only model loading. Student source code is not sent to Hugging Face or another external service by this application.
-
-If CodeBERT is unavailable, the dashboard continues without semantic similarity.
 
 ## Input limits and security behavior
 
@@ -269,7 +287,7 @@ The bundled XGBoost artifact is a synthetic demonstration model. The next model-
 
 ## ML stage: local CodeBERT and XGBoost
 
-The application now includes both required ML components.
+The application includes both ML components described in the technical documentation: local CodeBERT for semantic evidence and XGBoost for review-priority scoring. They serve different roles and are not treated as a single plagiarism detector.
 
 ### Local CodeBERT
 
@@ -279,7 +297,7 @@ The Streamlit option is enabled by default. If the local model is unavailable, t
 
 ### XGBoost review-priority model
 
-The project now has a local XGBoost classifier interface in `src/similarity_investigator/xgboost_model.py`. It consumes the exact numeric feature contract from `feature_dataset.py`, including token, AST, CFG, semantic, size, parse, and corpus-relative features. Missing semantic values are passed as `NaN`, which XGBoost can handle.
+XGBoost is the learned fusion stage. The project has a local XGBoost classifier interface in `src/similarity_investigator/xgboost_model.py`. It consumes the exact 44-feature numeric contract from `feature_dataset.py`, including token, AST, CFG, semantic, size, parse, and corpus-relative features. Missing semantic values are passed as `NaN`, which XGBoost can handle. This allows the learned model to assign dynamic weights to the available evidence instead of using only fixed hand-written weights.
 
 A local demonstration model can be trained with:
 

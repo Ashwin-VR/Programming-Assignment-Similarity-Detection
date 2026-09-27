@@ -315,7 +315,6 @@ def render_results() -> None:
         st.markdown('<div class="note">The CSV contains the exact numeric feature contract used by the local XGBoost review-priority model. The model consumes measured detector outputs and never generates a plagiarism verdict.</div>', unsafe_allow_html=True)
         feature_path = st.session_state.get("feature_path")
         if feature_path:
-            st.code(feature_path, language="text")
             st.download_button("DOWNLOAD PAIR FEATURE CSV", data=Path(feature_path).read_bytes(), file_name=Path(feature_path).name, mime="text/csv")
 
 
