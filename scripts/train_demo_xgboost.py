@@ -60,7 +60,7 @@ def build_submissions() -> tuple[list[Submission], dict[tuple[str, str], int]]:
     counter = 0
     for language, templates in (("Python", python_programs()), ("C++", cpp_programs()), ("Java", java_programs())):
         for i, template in enumerate(templates):
-            base = template.format(i, (i % 4) + 2)
+            base = template.format(i=1, K=(i % 4) + 2)
             variant = template.format(i=i + 100, k=(i % 4) + 2)
             # A structural-preserving formatting/name variant is a synthetic positive.
             a = f"demo_{counter}_a"; counter += 1
